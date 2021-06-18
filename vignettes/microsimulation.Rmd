@@ -1,0 +1,63 @@
+---
+title: "Notes on microsimulation code"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Notes on microsimulation code}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+
+# Derivation of 'make_time_remaining'
+
+$s$ is step length
+
+## Lower triangle, immigrant
+
+Immigrant arrives at time $t$. When step length is 1, $p(t) = 2t$. Imples that 
+$$
+  F(t) = \int_{u=0}^t 2u du = t^2
+$$
+$y = t^2$ implies $t = \sqrt{y}$,
+so 
+$$
+F^{-1}(y) = \sqrt{y}
+$$
+So draw from $p(t)$ by drawing $y$ from unif(0, 1) distribution, then transforming. When $s \neq 1$, multiply by s.
+
+
+## Lower triangle, non-immigrant
+
+Person enters triangle from below at any time during interval. Draw from uniform distribution, and multiply by $s$.
+
+## Upper triangle, final age group, immigrant
+
+Follow cohort. Draw from uniform distribution, and multiply by $s$.
+
+## Upper triangle, final age group, non-immigrant
+
+Actually a parallelogram. Everyone's time remaining is $s$.
+
+## Upper triangle, not final age group, immigrant
+
+Enter at time $t$. When step length is 1, $p(t) = 2(1 - t)$. Imples that 
+$$
+  F(t) = \int_{u=0}^t 2(1 - u) du = 2t - t^2
+$$
+$y = 2t - t^2$ implies $t = \frac{2 \pm \sqrt{4 - 4y}}{2} = 1 \pm \sqrt{1-y}$,
+so 
+$$
+F^{-1}(y) = 1 - \sqrt{1-y}
+$$
+So draw from $p(t)$ by drawing $y$ from unif(0, 1) distribution, then transforming. When $s \neq 1$, multiply by s.
+
+## Upper triangle, not final age group, non-immigrant
+
+Person leaves triangle at any time during interval. Draw from uniform distribution, and multiply by $s$.
