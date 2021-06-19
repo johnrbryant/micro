@@ -1,10 +1,14 @@
 
 ## HAS_TESTS
 ## returns matrix with dimensions 'n_sex', 'n_region'
-unpack_births <- function(x) {
-    n_region <- nrow(x)
+unpack_births <- function(x, has_internal) {
     offset_dth_emig <- 2L
-    start <- n_region + offset_dth_emig + 1L
+    if (has_internal) {
+        n_region <- nrow(x)
+        start <- n_region + offset_dth_emig + 1L
+    }
+    else
+        start <- offset_dth_emig + 1L
     end <- ncol(x)
     cols <- seq.int(from = start, to = end)
     ans <- x[ , cols]
@@ -14,16 +18,27 @@ unpack_births <- function(x) {
 
 ## HAS_TESTS
 ## returns vector with length 'n_region'
-unpack_deaths <- function(x) {
-    n_region <- nrow(x)
-    x[ , n_region + 1L]
+unpack_deaths <- function(x, has_internal) {
+    offset_dth_emig <- 2L
+    if (has_internal) {
+        n_region <- nrow(x)
+        i <- n_region + 1L
+    }
+    else
+        i <- 1L
+    x[ , i]
 }
 
 ## HAS_TESTS
 ## returns vector with length 'n_region'
-unpack_emigration <- function(x) {
-    n_region <- nrow(x)
-    x[ , n_region + 2L]
+unpack_emigration <- function(x, has_internal) {
+    if (has_internal) {
+        n_region <- nrow(x)
+        i <- n_region + 2L
+    }
+    else
+        i <- 2L
+    x[ , i]
 }
 
 ## HAS_TESTS
