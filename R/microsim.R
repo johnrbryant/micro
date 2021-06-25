@@ -52,6 +52,7 @@
 #' @param step_length Age-time steps. Usually 1 or 5.
 #' @param dominant_sex The sex to which births are
 #' attributed. Defaults to \code{"Female"}.
+#' @param n_iter The number of iterations. Defaults to 1.
 #'
 #' @return An object of class \code{\link[dembase]{Movements-class}}.
 #'
@@ -63,7 +64,8 @@ microsim <- function(initial_popn,
                      immigration_means,
                      emigration_rates,
                      step_length,
-                     dominant_sex = "Female") {
+                     dominant_sex = "Female",
+                     n_iter = 1) {
     has_births <- !is.null(fertility_rates)
     has_internal <- !is.null(internal_rates)
     ## check names of dimensions
@@ -107,26 +109,32 @@ microsim <- function(initial_popn,
     times <- seq.int(from = time_first,
                      by = step_length,
                      length.out = n_time + 1L)
+    n_iter <- as.integer(n_iter)
+    has_iter <- !identical(n_iter, 1L)
+    s_iter <- seq_len(n_iter)
+    dim_popn <- c(n_age, n_sex, n_region, n_time + 1L, n_iter)
+    dn_popn <- c(dimnames(initial_popn),
+                 list(time = times, iteration = s_iter))
     popn <- array(0L,
-                  dim = c(n_age, n_sex, n_region, n_time + 1L),
-                  dimnames = c(dimnames(initial_popn), list(time = times)))
+                  dim = dim_popn,
+                  dimnames = dn_popn)
+    dim_entry_exit <- c(dim(mortality_rates), n_iter)
+    dn_entry_exit <- c(dimnames(mortality_rates), list(iteration = s_iter))
+    entry_exit <- array(0L,
+                        dim = dim_entry_exit,
+                        dimnames = dn_entry_exit)
     if (has_births)
-        births <- array(0L,
-                        dim = dim(fertility_rates),
-                        dimnames = dimnames(fertility_rates))
-    deaths <- array(0L,
-                    dim = dim(mortality_rates),
-                    dimnames = dimnames(mortality_rates))
-    if (has_internal)
+        births <- entry_exit
+    deaths <- entry_exit
+    if (has_internal) {
+        dim_internal <- c(dim(internal_rates), n_iter)
+        dn_internal <- c(dimnames(internal_rates), list(iteration = s_iter))
         internal <- array(0L,
-                          dim = dim(internal_rates),
-                          dimnames = dimnames(internal_rates))
-    immigration <- array(0L,
-                         dim = dim(immigration_means),
-                         dimnames = dimnames(immigration_means))
-    emigration <- array(0L,
-                        dim = dim(emigration_rates),
-                        dimnames = dimnames(emigration_rates))
+                          dim = dim_internal,
+                          dimnames = dn_internal)
+    }
+    immigration <- entry_exit
+    emigration <- entry_exit
     ## create vectors, arrays for intermediate quantities
     offset_dth_emig <- 2L
     n_col_move <- offset_dth_emig + if (has_internal) n_region else 0L
@@ -143,117 +151,137 @@ microsim <- function(initial_popn,
     sexes <- dimnames(initial_popn)$sex
     i_dominant_sex <- match(dominant_sex, sexes)
     ## put 'initial_popn' into 'popn' array
-    popn[ , , , 1L] <- initial_popn
-    ## simulate period by period
-    for (i_time in seq_len(n_time)) {
-        ## Process upper triangles before lower,
-        ## following cohorts upwards.
-        ## Also required so that migration and
-        ## mortality of new-born cohort
-        ## is simulated last.
-        for (i_triangle in 2:1) {
-            is_lower <- i_triangle == 1L
-            ## go from oldest age group to youngest,
-            ## so that migration and mortality of
-            ## new-born cohort simulated last
-            for (i_age in seq.int(from = n_age, to = 1L)) {
-                is_first_age <- i_age == 1L
-                is_final_age <- i_age == n_age
-                ## Construct a matrix of fertility rates for this combination
-                ## of age, triangle, and time. The matrix is transposed so that
-                ## it aligns with the 'move_rates_indiv' matrix.
-                ## The 'simulate_one_triangle' function only uses the matrix
-                ## when 'is_dominant_sex' is TRUE. Note that 'sex' in 
-                ## 'fert_rates_indiv' refers to the sex of the
-                ## child, not the parent.
-                if (has_births)
-                    fert_rates_indiv <- t(fertility_rates[i_age, i_triangle, , , i_time])
-                else
-                    fert_rates_indiv <- NULL
-                ## do dominant sex before other sex(es) so that births generated in first iteration
-                s_sex <- order(seq_len(n_sex) != i_dominant_sex) # sequence with 'i_dominant_sex' first
-                for (i_sex in s_sex) {
-                    is_dominant_sex <- i_sex == i_dominant_sex
-                    generate_births <- has_births && is_dominant_sex
-                    ## Construct a matrix of internal migration, death and emigration rates
-                    ## for this combination of age, triangle, sex, and time.
-                    if (has_internal)
-                        move_rates_indiv[ , (1 : n_region)] <- internal_rates[i_age, i_triangle, i_sex, , , i_time]
-                    move_rates_indiv[ , n_col_move - 1L] <- mortality_rates[i_age, i_triangle, i_sex, , i_time]
-                    move_rates_indiv[ , n_col_move] <- emigration_rates[i_age, i_triangle, i_sex, , i_time]
-                    events_total[] <- 0L
-                    for (i_region in seq_len(n_region)) {
-                        ## construct initial population for this age-triangle-sex-region-time cell
-                        if (is_lower) {
-                            if (is_first_age) {
-                                if (has_births)
-                                    n_popn_start <- sum(births[ , , i_sex, i_region, i_time]) ## sum over age, triangle of parent
+    popn[ , , , 1L, ] <- initial_popn
+    for (i_iter in s_iter) {
+        ## simulate period by period
+        for (i_time in seq_len(n_time)) {
+            ## Process upper triangles before lower,
+            ## following cohorts upwards.
+            ## Also required so that migration and
+            ## mortality of new-born cohort
+            ## is simulated last.
+            for (i_triangle in 2:1) {
+                is_lower <- i_triangle == 1L
+                ## go from oldest age group to youngest,
+                ## so that migration and mortality of
+                ## new-born cohort simulated last
+                for (i_age in seq.int(from = n_age, to = 1L)) {
+                    is_first_age <- i_age == 1L
+                    is_final_age <- i_age == n_age
+                    ## Construct a matrix of fertility rates for this combination
+                    ## of age, triangle, and time. The matrix is transposed so that
+                    ## it aligns with the 'move_rates_indiv' matrix.
+                    ## The 'simulate_one_triangle' function only uses the matrix
+                    ## when 'is_dominant_sex' is TRUE. Note that 'sex' in 
+                    ## 'fert_rates_indiv' refers to the sex of the
+                    ## child, not the parent.
+                    if (has_births)
+                        fert_rates_indiv <- t(fertility_rates[i_age, i_triangle, , , i_time])
+                    else
+                        fert_rates_indiv <- NULL
+                    ## do dominant sex before other sex(es) so that births generated in first iteration
+                    s_sex <- order(seq_len(n_sex) != i_dominant_sex) # sequence with 'i_dominant_sex' first
+                    for (i_sex in s_sex) {
+                        is_dominant_sex <- i_sex == i_dominant_sex
+                        generate_births <- has_births && is_dominant_sex
+                        ## Construct a matrix of internal migration, death and emigration rates
+                        ## for this combination of age, triangle, sex, and time.
+                        if (has_internal)
+                            move_rates_indiv[ , (1 : n_region)] <- internal_rates[i_age, i_triangle, i_sex, , , i_time]
+                        move_rates_indiv[ , n_col_move - 1L] <- mortality_rates[i_age, i_triangle, i_sex, , i_time]
+                        move_rates_indiv[ , n_col_move] <- emigration_rates[i_age, i_triangle, i_sex, , i_time]
+                        events_total[] <- 0L
+                        for (i_region in seq_len(n_region)) {
+                            ## construct initial population for this age-triangle-sex-region-time cell
+                            if (is_lower) {
+                                if (is_first_age) {
+                                    if (has_births)
+                                        n_popn_start <- sum(births[ , , i_sex, i_region, i_time, i_iter]) ## sum over age, triangle of parent
+                                    else
+                                        n_popn_start <- 0L
+                                }
                                 else
-                                    n_popn_start <- 0L
+                                    n_popn_start <- accession[i_age - 1L, i_sex, i_region]
                             }
                             else
-                                n_popn_start <- accession[i_age - 1L, i_sex, i_region]
+                                n_popn_start <- popn[i_age, i_sex, i_region, i_time, i_iter]
+                            ## save value to use later in demographic accounting
+                            popn_start[[i_region]] <- n_popn_start
+                            ## generate immigrants for this age-triangle-sex-region-time cell
+                            lambda_immigrants <- immigration_means[i_age, i_triangle, i_sex, i_region, i_time]
+                            n_immigrants <- stats::rpois(n = 1L,
+                                                         lambda = lambda_immigrants)
+                            ## save value to use later in demographic accounting
+                            immigrants[[i_region]] <- n_immigrants
+                            ## simulate triangles for each individual that appears in this
+                            ## age-triangle-sex-region-time cell, collecting the results
+                            ## in 'events_total'
+                            n_indiv <- n_popn_start + n_immigrants
+                            for (i_indiv in seq_len(n_indiv)) {
+                                is_immigrant <- i_indiv > n_popn_start
+                                time_remaining <- make_time_remaining(step_length = step_length,
+                                                                      is_immigrant = is_immigrant,
+                                                                      is_lower = is_lower,
+                                                                      is_final_age = is_final_age)
+                                events_indiv <- simulate_one_triangle(move_rates_indiv = move_rates_indiv,
+                                                                      fert_rates_indiv = fert_rates_indiv,
+                                                                      i_region = i_region,
+                                                                      time_remaining = time_remaining,
+                                                                      generate_births = generate_births)
+                                events_total <- events_total + events_indiv
+                            }
+                        } # region
+                        ## record the accumulated events
+                        if (generate_births) { 
+                            births[i_age, i_triangle, , , i_time, i_iter] <- (births[i_age, i_triangle, , , i_time, i_iter]
+                                + unpack_births(events_total, has_internal = has_internal))
                         }
-                        else
-                            n_popn_start <- popn[i_age, i_sex, i_region, i_time]
-                        ## save value to use later in demographic accounting
-                        popn_start[[i_region]] <- n_popn_start
-                        ## generate immigrants for this age-triangle-sex-region-time cell
-                        lambda_immigrants <- immigration_means[i_age, i_triangle, i_sex, i_region, i_time]
-                        n_immigrants <- stats::rpois(n = 1L,
-                                                     lambda = lambda_immigrants)
-                        ## save value to use later in demographic accounting
-                        immigrants[[i_region]] <- n_immigrants
-                        ## simulate triangles for each individual that appears in this
-                        ## age-triangle-sex-region-time cell, collecting the results
-                        ## in 'events_total'
-                        n_indiv <- n_popn_start + n_immigrants
-                        for (i_indiv in seq_len(n_indiv)) {
-                            is_immigrant <- i_indiv > n_popn_start
-                            time_remaining <- make_time_remaining(step_length = step_length,
-                                                                  is_immigrant = is_immigrant,
-                                                                  is_lower = is_lower,
-                                                                  is_final_age = is_final_age)
-                            events_indiv <- simulate_one_triangle(move_rates_indiv = move_rates_indiv,
-                                                                  fert_rates_indiv = fert_rates_indiv,
-                                                                  i_region = i_region,
-                                                                  time_remaining = time_remaining,
-                                                                  generate_births = generate_births)
-                            events_total <- events_total + events_indiv
+                        deaths[i_age, i_triangle, i_sex, , i_time, i_iter] <- (
+                            deaths[i_age, i_triangle, i_sex, , i_time, i_iter]
+                            + unpack_deaths(events_total, has_internal = has_internal))
+                        if (has_internal)
+                            internal[i_age, i_triangle, i_sex, , , i_time, i_iter] <- (
+                                internal[i_age, i_triangle, i_sex, , , i_time, i_iter]
+                                + unpack_internal(events_total))
+                        immigration[i_age, i_triangle, i_sex, , i_time, i_iter] <- immigrants
+                        emigration[i_age, i_triangle, i_sex, , i_time, i_iter] <- (
+                            emigration[i_age, i_triangle, i_sex, , i_time, i_iter]
+                            + unpack_emigration(events_total, has_internal = has_internal))
+                        ## do demographic accounting
+                        increment_move <- make_increment_move(events_total,
+                                                              has_internal = has_internal)
+                        if (is_lower) {
+                            if (is_final_age) {
+                                existing_cohort <- accession[n_age, i_sex, ]
+                                new_cohort <- popn_start + immigrants + increment_move
+                                popn[n_age, i_sex, , i_time + 1L, i_iter] <- existing_cohort + new_cohort
+                            }
+                            else 
+                                popn[i_age, i_sex, , i_time + 1L, i_iter] <- popn_start + immigrants + increment_move
                         }
-                    } # region
-                    ## record the accumulated events
-                    if (generate_births) { 
-                        births[i_age, i_triangle, , , i_time] <- (births[i_age, i_triangle, , , i_time]
-                            + unpack_births(events_total, has_internal = has_internal))
-                    }
-                    deaths[i_age, i_triangle, i_sex, , i_time] <- (deaths[i_age, i_triangle, i_sex, , i_time]
-                        + unpack_deaths(events_total, has_internal = has_internal))
-                    if (has_internal)
-                        internal[i_age, i_triangle, i_sex, , , i_time] <- (internal[i_age, i_triangle, i_sex, , , i_time]
-                            + unpack_internal(events_total))
-                    immigration[i_age, i_triangle, i_sex, , i_time] <- immigrants
-                    emigration[i_age, i_triangle, i_sex, , i_time] <- (emigration[i_age, i_triangle, i_sex, , i_time]
-                        + unpack_emigration(events_total, has_internal = has_internal))
-                    ## do demographic accounting
-                    increment_move <- make_increment_move(events_total,
-                                                          has_internal = has_internal)
-                    if (is_lower) {
-                        if (is_final_age) {
-                            existing_cohort <- accession[n_age, i_sex, ]
-                            new_cohort <- popn_start + immigrants + increment_move
-                            popn[n_age, i_sex, , i_time + 1L] <- existing_cohort + new_cohort
+                        else {
+                            accession[i_age, i_sex, ] <- popn_start + immigrants + increment_move
                         }
-                        else 
-                            popn[i_age, i_sex, , i_time + 1L] <- popn_start + immigrants + increment_move
-                    }
-                    else {
-                        accession[i_age, i_sex, ] <- popn_start + immigrants + increment_move
-                    }
-                } # sex
-            } # age
-        } # triangle
-    } # time
+                    } # sex
+                } # age
+            } # triangle
+        } # time
+    } # iteration
+    if (!has_iter) {
+        ## remove iteration dimension
+        popn <- array(popn,
+                      dim = dim(popn)[-5L],
+                      dimnames = dimnames(popn)[-5L])
+        immigration <- array(immigration,
+                             dim = dim(immigration)[-6L],
+                             dimnames = dimnames(immigration)[-6L])
+        deaths <- array(deaths,
+                        dim = dim(deaths)[-6L],
+                        dimnames = dimnames(deaths)[-6L])
+        emigration <- array(emigration,
+                            dim = dim(emigration)[-6L],
+                            dimnames = dimnames(emigration)[-6L])
+    }
     popn <- dembase::Counts(popn, dimscales = c(age = "Intervals", time = "Points"))
     immigration <- dembase::Counts(immigration, dimscales = c(age = "Intervals", time = "Intervals"))
     deaths <- dembase::Counts(deaths, dimscales = c(age = "Intervals", time = "Intervals"))
@@ -263,8 +291,14 @@ microsim <- function(initial_popn,
                  exits = list(deaths = deaths,
                               emigration = emigration))
     if (has_births) {
+        if (!has_iter)
+            births <- array(births,
+                            dim = dim(births)[-6L],
+                            dimnames = dimnames(births)[-6L])
         births <- dembase::Counts(births, dimscales = c(age = "Intervals", time = "Intervals"))
         totals_age <- dembase::collapseDimension(births, margin = "age")
+        if (has_iter)
+            totals_age <- dembase::collapseIterations(totals_age, FUN = sum)
         i_nonzero <- which(totals_age > 0L)
         births <- dembase::slab(births,
                                 dimension = "age",
@@ -273,6 +307,10 @@ microsim <- function(initial_popn,
         args <- c(args, list(births = births))
     }
     if (has_internal) {
+        if (!has_iter)
+            internal <- array(internal,
+                              dim = dim(internal)[-7L], 
+                              dimnames= dimnames(internal)[-7L])
         internal <- dembase::Counts(internal, dimscales = c(age = "Intervals", time = "Intervals"))
         args <- c(args, list(internal = internal))
     }
