@@ -12,7 +12,8 @@ microsim(
   immigration_means,
   emigration_rates,
   step_length,
-  dominant_sex = "Female"
+  dominant_sex = "Female",
+  n_iter = 1
 )
 }
 \arguments{
@@ -40,6 +41,8 @@ Optional.}
 
 \item{dominant_sex}{The sex to which births are
 attributed. Defaults to \code{"Female"}.}
+
+\item{n_iter}{The number of iterations. Defaults to 1.}
 }
 \value{
 An object of class \code{\link[dembase]{Movements-class}}.
