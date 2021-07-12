@@ -13,12 +13,12 @@ double make_time_remaining_bd(int step_length,
 
 // // [[Rcpp::export]]
 // IntegerVector sim_one_tri_bd(NumericVector fert_rate_tri, 
-//                              double mort_rate_tri,
+//                              double mortality_rate_tri,
 //                              double time_remaining,
 //                              bool generate_births) {
 //   int n_sex = fert_rate_tri.size();
 //   IntegerVector events(n_sex + 1);
-//   double scale = 1 / mort_rate_tri; // rexp uses scale, not rate
+//   double scale = 1 / mortality_rate_tri; // rexp uses scale, not rate
 //   double time_die = R::rexp(scale);
 //   bool died = (time_die < time_remaining);
 //   if (died)
@@ -36,8 +36,8 @@ double make_time_remaining_bd(int step_length,
 
 // [[Rcpp::export]]
 List micro_bd(IntegerVector initial_popn, // n_age x n_sex x n_iter
-              NumericVector fert_rates, // n_age x n_tri x n_sex x n_period
-              NumericVector mort_rates, // n_age x n_tri x n_sex x n_period
+              NumericVector fertility_rates, // n_age x n_tri x n_sex x n_period
+              NumericVector mortality_rates, // n_age x n_tri x n_sex x n_period
               int n_age,
               int n_sex,
               int n_period,
@@ -66,15 +66,15 @@ List micro_bd(IntegerVector initial_popn, // n_age x n_sex x n_iter
           for (int i_age = n_age - 1; i_age >= 0; i_age--) {
             bool is_first_age = i_age == 0;
             bool is_final_age = i_age == n_age - 1;
-            // make 'mort_rate_tri' - scalar
+            // make 'mortality_rate_tri' - scalar
             int i_mort = (i_age + i_tri * n_age + i_sex * n_age * n_tri +
                           i_period * n_age * n_tri * n_sex);
-            double mort_rate_tri = mort_rates[i_mort];
+            double mort_rate_tri = mortality_rates[i_mort];
             // make 'fert_rate_tri' - vector of length 'n_sex'
             for (int i_sex_fert = 0; i_sex_fert < n_sex; i_sex_fert++) {
               int i_fert = (i_age + i_tri * n_age + i_sex_fert * n_age * n_tri + 
                             i_period * n_age * n_tri * n_sex);
-              fert_rate_tri[i_sex_fert] = fert_rates[i_fert];
+              fert_rate_tri[i_sex_fert] = fertility_rates[i_fert];
             }
             // calcuate 'n_popn_start'
             int n_popn_start = 0;
@@ -155,7 +155,14 @@ List micro_bd(IntegerVector initial_popn, // n_age x n_sex x n_iter
       } // sex
     } //time
   } //iteration
-  return List::create(population, births, deaths);
+  IntegerVector dim_popn {n_age, n_sex, n_period + 1, n_iter};
+  IntegerVector dim_bd {n_age, n_tri, n_sex, n_period, n_iter};
+  population.attr("dim") = dim_popn;
+  births.attr("dim") = dim_bd;
+  deaths.attr("dim") = dim_bd;
+  return List::create(Named("population") = population,
+                      Named("births") = births,
+                      Named("deaths") = deaths);
 }
 
 
