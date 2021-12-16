@@ -21,7 +21,6 @@
 #'
 #' The "sex" dimension can be length 1, 2, or more.
 #'
-#'
 #' @param initial_popn An array with dimensions "age",
 #' "sex", and "iteration"
 #' @param fertility_rates An array with dimensions
@@ -63,6 +62,8 @@ microsim <- function(initial_popn,
     ## create dimnames for output
     time_periods <- dimnames(mortality_rates)$time
     time_points <- make_time_points(time_periods)
+    
+    
     ans <- micro_bd
     
 }
